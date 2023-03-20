@@ -2,6 +2,15 @@
 <html>
   <head>
     {% include 'includes/header.html' %}
+    <script>
+      function checkUploadAction() {
+        if (document.getElementById("realCheck").checked) {
+          document.getElementById("uploadForm").action = "/upload?r=1"
+        } else {
+          document.getElementById("uploadForm").action = "upload"
+        }
+      }
+      </script>
   </head>
   <body>
   {% include 'includes/navigation.html' %}
@@ -22,6 +31,9 @@
     {% endfor %}
   </ul>
   <p>
+    * Zip files can be used to upload multiple files (all contained files must also be in allowed extensions), and to upload lnk files.
+  </p>
+  <p>
     All uploads will be stored. All requests are logged. 
     Defender sample submission is disabled.
     Use at your own risk. Do not misuse this service. 
@@ -31,7 +43,7 @@
   </p>
   <br>
 
-  <form method=post enctype=multipart/form-data action=/upload>
+  <form method=post enctype=multipart/form-data action=/upload id="uploadForm" onSubmit="checkUploadAction()">
     <div class="mb-3">
       <input class="form-control" type=file name=file>
     </div>
@@ -39,7 +51,8 @@
       <button class="btn btn-primary" type=submit value=Upload>Upload</button>
     </div>
   </form>
-
-
+  <div class="form-check">
+    <label><input class="form-check-input" type=checkbox id="realCheck">Realistic Scan for Initial Access Files</label>
+  </div>
 </body>
 </html>

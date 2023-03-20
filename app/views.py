@@ -136,7 +136,7 @@ def file(filename):
 
 def allowed_file(filename):
     return '.' in filename and \
-        filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+        filename.split('.')[-1].lower() in current_app.config['ALLOWED_EXTENSIONS']
 
 
 def get_secure_filepath(filename):
@@ -173,25 +173,34 @@ def upload_file():
             flash('No selected file')
             return redirect(request.url)
 
+        realistic_scan = bool(request.args.get("r"))
+
         if file and allowed_file(file.filename):
             filepath = save_file_obj(file)
-            filepaths = [filepath] # TODO Test the zip files
+            filepaths = [filepath]
 
             # handle zip files (check for secure filenames, extract, correctly saving and scanning)
             if filepath.split(".")[-1] == "zip":
                 if not zipfile.is_zipfile(filepath):
                     flash('Not a valid zip file')
+                    return redirect(request.url)
                 filepaths = [] # do not scan the container itself, only scan contained files
                 with zipfile.ZipFile(filepath) as zip_f:
                     for z_file in zip_f.infolist():
+                        if not allowed_file(z_file.filename):
+                            print("Error: Zip contained not allowed file extension: {}".format(z_file.filename))
+                            continue
                         extracted_path = save_file(z_file.filename, zip_f.read(z_file))
                         filepaths.append(extracted_path)
 
             # now scan the (extracted) file(s)
-            avred_server = "amsi" # TODO refactor server selector
+            avred_server = current_app.config['AVRED_SERVER']
             cli_scanner = current_app.config['AVRED_SCANNER']
             for filepath in filepaths:
-                subprocess.Popen([sys.executable, cli_scanner, "--server", avred_server, "--file", filepath, "--logtofile" ], shell=True)
+                cmd = [sys.executable, cli_scanner, "--server", avred_server, "--file", filepath, "--logtofile"]
+                if realistic_scan:
+                    cmd.extend(("--downloadUrl", current_app.config['DOWNLOAD_URL']))
+                subprocess.Popen(cmd, shell=True)
             filenames = [fp.split("\\")[-1] for fp in filepaths]
 
             # show general results page if multiple files scanned
