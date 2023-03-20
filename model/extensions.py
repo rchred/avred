@@ -1,14 +1,16 @@
+from abc import ABC, abstractmethod
 from utils import patchData, FillType
 from dataclasses import dataclass
 import os
 
 
 @dataclass
-class Scanner:
+class Scanner(ABC):
     """Interface to the AV scanner"""
-    scanner_path: str = ""
+    scanner_url: str = ""
     scanner_name: str = ""
 
+    @abstractmethod
     def scan(self, data, filename):
         pass
 

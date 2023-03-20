@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import argparse
-from scanner import ScannerRest
+from scanner import RawDataScanner, DownloadScanner
 
 import pickle
 import os
@@ -11,7 +11,7 @@ from typing import List
 
 from config import Config
 from verifier import verify
-from model.model import Outcome, FileInfo
+from model.model import Outcome
 from utils import FileType, GetFileType, convertMatchesIt, getFileInfo
 
 from plugins.analyzer_office import analyzeFileWord, augmentFileWord
@@ -28,7 +28,9 @@ log_format = '[%(levelname)-8s][%(asctime)s][%(filename)s:%(lineno)3d] %(funcNam
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--file", help="File to scan", required=True)
-    parser.add_argument('-s', "--server", help="Avred Server to use from config.json (default \"amsi\")")
+    parser.add_argument('-d', "--downloadUrl", help="The url, from which the Avred Server can download the file to scan")
+
+    parser.add_argument('-s', "--server", help="Avred Server to use from config.json", default="amsi")
     parser.add_argument("--logtofile", help="Log everything to <file>.log", default=False, action='store_true')
 
     # debug
@@ -36,9 +38,9 @@ def main():
     parser.add_argument("--loadVerify", help="Debug: Offline. Only do augmentation, if verifications exist.", default=False, action='store_true')
 
     # analyzer options
-    parser.add_argument("--pe_isolate", help="PE: Isolate sections to be tested (null all other)", default=False,  action='store_true')
-    parser.add_argument("--pe_remove", help="PE: Remove some standard sections at the beginning (experimental)", default=False,  action='store_true')
-    parser.add_argument("--pe_ignoreText", help="PE: Dont analyze .text section", default=False, action='store_true')
+    parser.add_argument("--peIsolate", help="PE: Isolate sections to be tested (null all other)", default=False,  action='store_true')
+    parser.add_argument("--peRemove", help="PE: Remove some standard sections at the beginning (experimental)", default=False,  action='store_true')
+    parser.add_argument("--peIgnoreText", help="PE: Dont analyze .text section", default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -66,7 +68,11 @@ def main():
         logging.error(f"Could not find server with name '{args.server}' in config.json")
         exit(1)
     url = config.get("server")[args.server]
-    scanner = ScannerRest(url, args.server)
+    if args.downloadUrl:
+        localPort = config.get("downloadLocalPort")
+        scanner = DownloadScanner(url, args.downloadUrl, localPort, args.server)
+    else:
+        scanner = RawDataScanner(url, args.server)
 
     logging.info("Using file: {}".format(args.file))
     if args.checkOnly:
@@ -78,7 +84,7 @@ def main():
 def scanFile(args, scanner):
     matchesIt = None
     matches = None
-    verifications = None
+    verification = None
     file = None
     analyzer = None
     analyzerOptions = {}
@@ -123,7 +129,7 @@ def scanFile(args, scanner):
         file = FileOffice()
         file.loadFromFile(args.file)
         analyzer = analyzeFileWord
-        augmenter = augmentFileWord 
+        augmenter = augmentFileWord
 
     elif filetype is FileType.EXE:
         file = FilePe()
@@ -138,9 +144,9 @@ def scanFile(args, scanner):
             augmenter = augmentFilePe
             uiFileType = 'ExePe'
 
-        analyzerOptions["isolate"] = args.pe_isolate
-        analyzerOptions["remove"] = args.pe_remove
-        analyzerOptions["ignoreText"] = args.pe_ignoreText
+        analyzerOptions["isolate"] = args.peIsolate
+        analyzerOptions["remove"] = args.peRemove
+        analyzerOptions["ignoreText"] = args.peIgnoreText
 
     else:
         logging.error("File ending not supported")
@@ -149,13 +155,11 @@ def scanFile(args, scanner):
         file.loadFromFile(args.file)
         fileInfo = getFileInfo(file, uiFileType, '')
         outcome = Outcome.nullOutcome(fileInfo)
-        print(file.filename)
         with open(filenameOutcome, 'wb') as handle:
             pickle.dump(outcome, handle)
             logging.info(f"Wrote results to {filenameOutcome}")
         exit(1)
 
-    matchesIt: List[Interval]
     # matches
     if os.path.exists(filenameMatches):
         # load previous matches (offline mode)
@@ -164,7 +168,7 @@ def scanFile(args, scanner):
             matchesIt = pickle.load(handle)
     else:
         # check if its really being detected first
-        detected = scanner.scan(file.data, file.filename)
+        detected = scanner.scan(file.data, args.file)
         if detected:
             logging.info(f"{file.filename} is detected by {scanner.scanner_name}")
             matchesIt = analyzer(file, scanner, analyzerOptions)
@@ -182,7 +186,6 @@ def scanFile(args, scanner):
     #    logging.warning("No matches found. Try some other options?")
     matches = convertMatchesIt(matchesIt)
 
-    verification = None
     if args.loadVerify and os.path.exists(filenameOutcome):
         # For testing purposes.
         # Basically an offline version if .matches and .augment with verify data exists
